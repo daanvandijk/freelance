@@ -1,0 +1,110 @@
+#!/usr/bin/php
+<?php
+/*
+ * Freelance time management
+ * daanvandijk/freelance
+ */
+$mode = "help";
+
+function checkCorrect() {
+  echo "Is this correct? [y/n]\n";
+  while (true) {
+    $character = fgetc(STDIN);
+    if ($character == "y" || $character == "Y") break;
+    else if ($character == "n" || $character == "N") die();
+  }
+}
+
+if ($argc > 1) {
+  if ($argv[1] == "-i" && $argc == 5) $mode = "insert";
+  else if ($argv[1] == "-l") $mode = "list";
+  else if ($argv[1] == "-csv") $mode = "csv";
+  else if ($argv[1] == "-r" && $argc == 5) $mode = "rate";
+}
+
+$db = new SQLite3('freelance.db');
+// Create table if not exists
+$sql = 'CREATE TABLE IF NOT EXISTS `hours` (
+  id integer primary key autoincrement,
+  date date not null, 
+  project varchar(255) not null, 
+  hours double not null,
+  notes varchar (255) not null
+);';
+$db->exec($sql);
+$sql = 'CREATE TABLE IF NOT EXISTS `rates` (
+  project varchar(255) primary key not null,
+  rate double,
+  currency varchar(10));';
+$db->exec($sql);
+
+if ($mode == "help") {
+  echo "Usage:\n";
+  echo "\tfreelance -i [project] [hours] [notes]\n";
+  echo "\tfreelance -r [project] [rate] [currency]\n";
+  echo "\tfreelance -l\n";
+  echo "\tfreelance -csv\n";
+}
+else if ($mode == "insert") {
+  $project = $argv[2];
+  $hours = floatval($argv[3]);
+  $notes = $argv[4];
+  echo "Project: $project\n";
+  echo "Hours: $hours\n";
+  echo "Notes: $notes\n";
+  checkCorrect();
+
+  // Insert hours into table
+  echo "Inserting into db...\n";
+  $sql = "INSERT INTO hours (date, project, hours, notes) VALUES (date('now'), '$project', $hours, '$notes');";
+  $db->exec($sql);
+}
+else if ($mode == "rate") {
+  $project = $argv[2];
+  $rate = floatval($argv[3]);
+  $currency = $argv[4];
+  echo "Project: $project\n";
+  echo "Rate: $rate\n";
+  echo "Currency: $currency\n";
+  checkCorrect();
+
+  // Insert currency into table
+  echo "Inserting into db...\n";
+  $sql = "INSERT INTO rates (project, rate, currency) VALUES ('$project', $rate, '$currency');";
+  $db->exec($sql);
+}
+else if ($mode == "list" || $mode == "csv") {
+  $results = $db->query('SELECT `hours`.project, date, hours, notes, rate, currency FROM `hours` INNER JOIN `rates` ON `hours`.project = `rates`.project;');
+  $totalHours = 0.0;
+  $totalMoney = array();
+  if ($mode == "csv")
+    echo "project,date,hours,price,currency,notes\n";
+  while ($row = $results->fetchArray()) {
+    if ($mode == "list") 
+      echo $row['project'] . " " . 
+        $row['date'] . " " . 
+        $row['hours'] . " hour(s) " . 
+        ($row['rate'] * $row['hours']) . 
+        " " . $row['currency'] . 
+        " \"" . $row['notes']. "\"\n";
+    else 
+      echo $row['project'] . "," . 
+      $row['date'] . "," . 
+      $row['hours'] . "," . 
+      ($row['rate'] * $row['hours']) . "," . 
+      $row['currency'] . ",\"" .  
+      $row['notes'] . "\""  .  "\n";
+
+    if (!isset($totalMoney[$row['currency']])) 
+      $totalMoney[$row['currency']] = $row['rate'] * $row['hours'];
+    else
+      $totalMoney[$row['currency']] += $row['rate'] * $row['hours']; 
+    $totalHours += $row['hours'];
+  }
+  if ($mode == "list")
+    echo "Total number of hours: $totalHours\n";
+    foreach ($totalMoney as $key => $value) {
+      echo "Total price: $value $key\n";
+    }
+}
+?>
