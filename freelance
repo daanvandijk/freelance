@@ -20,6 +20,7 @@ if ($argc > 1) {
   else if ($argv[1] == "-l") $mode = "list";
   else if ($argv[1] == "-csv") $mode = "csv";
   else if ($argv[1] == "-r" && $argc == 5) $mode = "rate";
+  else if ($argv[1] == "-d" && $argc == 3) $mode = "delete";
 }
 
 $db = new SQLite3('freelance.db');
@@ -41,9 +42,10 @@ $db->exec($sql);
 if ($mode == "help") {
   echo "Usage:\n";
   echo "\tfreelance -i [project] [hours] [notes]\n";
+  echo "\tfreelance -d [id]\n";
   echo "\tfreelance -r [project] [rate] [currency]\n";
-  echo "\tfreelance -l\n";
-  echo "\tfreelance -csv\n";
+  echo "\tfreelance -l ([start date] ([end date])) \n";
+  echo "\tfreelance -csv ([start date] ([end date))\n";
 }
 else if ($mode == "insert") {
   $project = $argv[2];
@@ -56,8 +58,32 @@ else if ($mode == "insert") {
 
   // Insert hours into table
   echo "Inserting into db...\n";
-  $sql = "INSERT INTO hours (date, project, hours, notes) VALUES (date('now'), '$project', $hours, '$notes');";
-  $db->exec($sql);
+  $sql = "INSERT INTO hours (date, project, hours, notes) VALUES (date('now'), :project, :hours, :notes);";
+  $q = $db->prepare($sql);
+  $q->bindParam(":project", $project);
+  $q->bindParam(":hours", $hours);
+  $q->bindParam(":notes", $notes);
+  if ($q->execute() == false) die("Failed to delete the entry\n");
+}
+else if ($mode == "delete") {
+  $sql = "SELECT * FROM `hours` WHERE id = :id";
+  $q = $db->prepare($sql);
+  $q->bindParam(":id", $argv[2]);
+  $r = $q->execute();
+  if ($r == false) die("There doesn't exists an entry with id: " . $argv[2] . "\n");
+  echo "Are you sure you wan't to delete below entry?\n";
+  while ($row = $r->fetchArray()) {
+    echo $row['project'] . " " . 
+    $row['date'] . " " . 
+    $row['hours'] . " \"" . 
+    $row['notes'] . "\""  .  "\n";
+  }
+  checkCorrect();
+
+  $sql = "DELETE FROM `hours` WHERE id = :id";
+  $q = $db->prepare($sql);
+  $q->bindParam(":id", $argv[2]);
+  if ($q->execute() == false) die("Failed to delete the entry\n");
 }
 else if ($mode == "rate") {
   $project = $argv[2];
@@ -70,11 +96,24 @@ else if ($mode == "rate") {
 
   // Insert currency into table
   echo "Inserting into db...\n";
-  $sql = "INSERT INTO rates (project, rate, currency) VALUES ('$project', $rate, '$currency');";
-  $db->exec($sql);
+  $sql = "INSERT INTO rates (project, rate, currency) VALUES (:project, :rate, :currency);";
+  $q = $db->prepare($sql);
+  $q->bindParam(":project", $project);
+  $q->bindParam(":rate", $rate);
+  $q->bindParam(":currency", $currency);
+  if ($q->execute() == false) die("Failed to insert into database\n");
 }
 else if ($mode == "list" || $mode == "csv") {
-  $results = $db->query('SELECT `hours`.project, date, hours, notes, rate, currency FROM `hours` INNER JOIN `rates` ON `hours`.project = `rates`.project;');
+  // Get start and end date if given
+  $startDate = "2000-01-01";
+  $endDate = "now";
+  if ($argc >= 3) $startDate = "date('" . $argv[2] . "')";
+  if ($argc >= 4) $endDate = "date('" . $argv[3] . "')";
+  $sql = "SELECT `hours`.project, date, hours, notes, rate, currency FROM `hours` LEFT JOIN `rates` ON `hours`.project = `rates`.project WHERE `date` between date(:start_date) and date(:end_date);";
+  $q = $db->prepare($sql);
+  $q->bindParam(":start_date", $startDate);
+  $q->bindParam(":end_date", $endDate);
+  $results = $q->execute();
   $totalHours = 0.0;
   $totalMoney = array();
   if ($mode == "csv")
